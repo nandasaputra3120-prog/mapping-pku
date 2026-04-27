@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mapping RS PKU Blora - Cloud Edition</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 10px; background-color: #f4f7f9; overflow-x: hidden; }
+        .container { max-width: 100%; margin: auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 25px rgba(0,0,0,0.1); }
+        .header { background: #fff; padding: 12px 15px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; }
+        .header h2 { font-size: 1.1rem; margin: 0; color: #2c3e50; font-weight: 700; }
+        #map { height: 250px; width: 100%; z-index: 1; border-bottom: 2px solid #3498db; }
+        .content { padding: 15px; }
+        
+        .status { font-size: 0.8rem; font-weight: bold; margin-bottom: 15px; display: block; padding: 8px; border-radius: 12px; text-align: center; }
+        .status-idle { background: #f1f3f5; color: #666; border: 1px solid #ddd; }
+        .status-low { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+        .status-mid { background: #fff3e0; color: #ef6c00; border: 1px solid #ffcc80; }
+        .status-high { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+
+        .input-group { margin-bottom: 12px; }
+        label { display: block; font-size: 0.7rem; font-weight: bold; color: #7f8c8d; margin-bottom: 4px; text-transform: uppercase; }
+        input { width: 100%; padding: 10px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 0.9rem; box-sizing: border-box; }
+        input[readonly] { background: #f9f9f9; }
+
+        .row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .col { flex: 1; min-width: 0; }
+
+        .btn-blue { width: 100%; background: linear-gradient(135deg, #3498db, #2980b9); color: white; padding: 12px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; margin-bottom: 12px; font-size: 0.9rem; }
+        .btn-green { flex: 1; background: #27ae60; color: white; padding: 12px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-orange { flex: 1; background: #e67e22; color: white; padding: 12px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-red { background: #fff; color: #c62828; border: 1px solid #ef9a9a; padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; }
+
+        .table-container { width: 100%; margin: 15px auto; background: white; border-radius: 16px; padding: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); box-sizing: border-box; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.65rem; table-layout: fixed; border: 1px solid #ddd; }
+        th { background: #f8f9fa; padding: 8px 4px; border: 1px solid #ddd; }
+        td { padding: 8px 4px; border: 1px solid #eee; text-align: center; word-wrap: break-word; }
+        
+        th:nth-child(1), td:nth-child(1) { width: 30%; text-align: left; padding-left: 5px; }
+        th:nth-child(2), td:nth-child(2) { width: 25%; }
+        th:nth-child(3), td:nth-child(3) { width: 25%; }
+        th:nth-child(4), td:nth-child(4) { width: 20%; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header"><span>📍</span><h2>Mapping RS PKU Blora</h2></div>
+    <div id="map"></div>
+    <div class="content">
+        <div id="status" class="status status-idle">SIAP AMBIL DATA</div>
+        <div class="input-group">
+            <label>Nama Ruangan</label>
+            <input type="text" id="namaRuang" placeholder="Ketik nama unit...">
+        </div>
+        <button id="btnAmbil" class="btn-blue" onclick="toggleGPS()">🛰️ AMBIL KOORDINAT</button>
+        <div class="row">
+            <div class="col"><label>Lat</label><input type="text" id="lat" readonly></div>
+            <div class="col"><label>Long</label><input type="text" id="lng" readonly></div>
+            <div class="col"><label>Alt</label><input type="text" id="alt" readonly></div>
+        </div>
+        <div class="btn-row" style="display: flex; gap:8px;">
+            <button class="btn-green" id="btnSimpan" onclick="simpanData()" disabled style="opacity: 0.5;">💾 SIMPAN (AUTO CLOUD)</button>
+            <button class="btn-orange" onclick="exportKeCSV()">📁 DOWNLOAD CSV</button>
+        </div>
+    </div>
+</div>
+
+<div class="table-container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0; font-size:0.9rem;">Data Terinput</h3>
+        <button class="btn-red" onclick="hapusData()">🗑️ HAPUS</button>
+    </div>
+    <table>
+        <thead><tr><th>Ruangan</th><th>Lat</th><th>Long</th><th>Alt</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    let map, marker, watchId = null;
+    // --- GANTI URL DIBAWAH INI DENGAN URL GOOGLE APPS SCRIPT BAPAK ---
+    const scriptURL = "https://script.google.com/macros/s/AKfycbwEoLPBPT1jJ2rGg9nJkT9THcaUAvobng6mvDGoU7i0Nj09FvWqQnRCOQ205LhneBfVrQ/exec";
+
+    document.addEventListener("DOMContentLoaded", () => {
+        tampilkanData();
+        map = L.map('map').setView([-6.9692, 111.4184], 17);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        const layerSatelit = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+        L.control.layers({"Jalan": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'), "Satelit": layerSatelit}).addTo(map);
+    });
+
+    function toggleGPS() {
+        const btnAmbil = document.getElementById('btnAmbil');
+        const status = document.getElementById('status');
+        if (watchId === null) {
+            btnAmbil.innerText = "🛑 STOP MENCARI";
+            btnAmbil.style.background = "linear-gradient(135deg, #e74c3c, #c0392b)";
+            status.innerText = "🌀 Mencari Sinyal Satelit...";
+            status.className = "status status-low";
+            mulaiPantau();
+        } else {
+            stopTracking();
+        }
+    }
+
+    function stopTracking() {
+        if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        document.getElementById('btnAmbil').innerText = "🛰️ AMBIL KOORDINAT";
+        document.getElementById('btnAmbil').style.background = "";
+        document.getElementById('status').innerText = "GPS STANDBY";
+        document.getElementById('status').className = "status status-idle";
+    }
+
+    function mulaiPantau() {
+        watchId = navigator.geolocation.watchPosition((pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const acc = pos.coords.accuracy;
+            const alt = pos.coords.altitude || 141.00;
+            document.getElementById('lat').value = lat;
+            document.getElementById('lng').value = lng;
+            document.getElementById('alt').value = alt.toFixed(2);
+            const status = document.getElementById('status');
+            const btnSimpan = document.getElementById('btnSimpan');
+            if (acc <= 15) {
+                status.innerText = "✅ AKURAT: " + acc.toFixed(1) + "m";
+                status.className = "status status-high";
+                btnSimpan.disabled = false; btnSimpan.style.opacity = "1";
+            } else if (acc <= 25) {
+                status.innerText = "⚠️ CUKUP: " + acc.toFixed(1) + "m";
+                status.className = "status status-mid";
+                btnSimpan.disabled = false; btnSimpan.style.opacity = "1";
+            } else {
+                status.innerText = "❌ BURUK: " + acc.toFixed(1) + "m";
+                status.className = "status status-low";
+                btnSimpan.disabled = true; btnSimpan.style.opacity = "0.5";
+            }
+            map.setView([lat, lng], 18);
+            if (marker) map.removeLayer(marker);
+            marker = L.marker([lat, lng]).addTo(map);
+        }, (err) => { alert(err.message); stopTracking(); }, { enableHighAccuracy: true });
+    }
+
+    function simpanData() {
+        const nama = document.getElementById('namaRuang').value;
+        const lat = document.getElementById('lat').value;
+        const lng = document.getElementById('lng').value;
+        const alt = document.getElementById('alt').value;
+
+        if (!nama) return alert("Isi Nama Ruangan!");
+
+        // 1. SIMPAN KE LOKAL (HP)
+        let listData = JSON.parse(localStorage.getItem('db_mapping_pku')) || [];
+        listData.push({ruang: nama, lat: lat, lng: lng, alt: alt});
+        localStorage.setItem('db_mapping_pku', JSON.stringify(listData));
+        tampilkanData();
+
+        // 2. KIRIM KE SERVER (GOOGLE SHEETS)
+        const btnSimpan = document.getElementById('btnSimpan');
+        btnSimpan.innerText = "⏳ MENGIRIM...";
+        btnSimpan.disabled = true;
+
+        fetch(scriptURL, {
+            method: 'POST',
+            mode: 'no-cors', // Menghindari masalah CORS pada Web App
+            cache: 'no-cache',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ruang: nama, lat: lat, lng: lng, alt: alt})
+        })
+        .then(() => {
+            alert("Berhasil! Data tersimpan di HP & Google Sheets.");
+            finishSimpan();
+        })
+        .catch(error => {
+            alert("Terinput di HP, tapi gagal kirim ke Cloud (Cek Sinyal).");
+            finishSimpan();
+        });
+    }
+
+    function finishSimpan() {
+        document.getElementById('namaRuang').value = "";
+        document.getElementById('btnSimpan').innerText = "💾 SIMPAN (AUTO CLOUD)";
+        stopTracking();
+    }
+
+    function tampilkanData() {
+        const tableBody = document.getElementById('tableBody');
+        const listData = JSON.parse(localStorage.getItem('db_mapping_pku')) || [];
+        tableBody.innerHTML = listData.map(d => `<tr><td>${d.ruang}</td><td>${d.lat}</td><td>${d.lng}</td><td>${d.alt}</td></tr>`).join('');
+    }
+
+    function hapusData() { if(confirm("Hapus semua data lokal?")) { localStorage.removeItem('db_mapping_pku'); tampilkanData(); } }
+
+    function exportKeCSV() {
+        const listData = JSON.parse(localStorage.getItem('db_mapping_pku')) || [];
+        if(listData.length === 0) return alert("Kosong!");
+        let csv = "Nama Ruangan,Latitude,Longitude,Altitude\n" + listData.map(d => `"${d.ruang}",${d.lat},${d.lng},${d.alt}`).join("\n");
+        const link = document.createElement("a");
+        link.href = 'data:text/csv;charset=utf-8,' + encodeURI(csv);
+        link.download = "Mapping_PKU.csv";
+        link.click();
+    }
+</script>
+</body>
+</html>
